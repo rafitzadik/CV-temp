@@ -170,7 +170,14 @@ def in_region(pt, r):
 
 def car_pois(gray, region):
     mask = np.zeros_like(gray)
-    cv2.rectangle(mask, (region[0], region[1]), (region[2], region[3]), 255, -1)
+    assert(region[0]<region[2] and region[1] < region[3]) #that's my assumption, helps avoid taking min and max
+    
+    width = region[2] - region[0]
+    height = region[3] - region[1]
+    p0 = (int(region[0] + 0.1 * width), int(region[1] + 0.1 * height))
+    p1 = (int(region[2] - 0.1 * width), int(region[3] - 0.1 * height))
+    
+    cv2.rectangle(mask, p0, p1, 255, -1)
 #    cv2.imshow('gray', gray)
 #    cv2.imshow('mask', mask)
     #cv2.waitKey(0)
