@@ -188,7 +188,71 @@ def car_pois(gray, region):
     pp = [[x,y] for [[x,y]] in p]
     return pp
     
+def update_cars_2(cars, dets, prev_grey, cur_grey):
+### This alternative implementation looks where each new detection is coming from 
+### which might better deal with overlaps
+    if (len(cars) > 0): #are we initialized at all?
+        #first, build a list of all POI's and the cars they belong to:
+        prev_car_pts = []
+        for car in cars:
+            car.new_pts = [] #delete the previous iteration
+            car.state = 'not detected'
+            for p in car.pts:
+                prev_car_pts.append((car, p))
+        p0 = np.float32([p for (car,p) in prev_car_pts])
+        p1, st, err = cv2.calcOpticalFlowPyrLK(prev_grey, cur_grey, p0, None, **lk_params)
+        #now for every point in p0 I have a p1 and st(atus) entry.
+        for (prv, cur, good) in zip(prev_car_pts, p1, st):
+            if good == 1:
+                prv[0].new_pts.append(cur)
+        #now I know where each car moved to, if it has good points in the new frame
+        #if a car has no "good status" points, delete that car
+        for car in cars:
+            if len(car.new_pts) == 0:
+                car.state = 'no flow'
+        #now for detection, see which car best fits with it
+        for det in dets:
+            relevant_cars = {}
+            found_some = False
+            for idx, car in enumerate(cars):
+                for p in car.new_pts:
+                    if in_region(p, det[1]):
+                        relevant_cars[idx] = relevant_cars.get(idx, 0) + 1
+                        found_some = True
+            if not found_some:
+                #this det does not correspond to any car, create a new one for it:
+                new_car = Car()
+                new_car.region = det[1]
+                new_car.state = 'new'
+                new_car.new_pts = car_pois(cur_grey, det[1])
+                new_car.color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+                cars.append(new_car)
+            else:
+                #get the car which has the most points in this det
+                best_car_idx = max(relevant_cars, key=lambda k:relevant_cars[k])
+                car = cars[best_car_idx]
+                car.region = det[1]
+                car.new_pts = [p for p in car.new_pts if in_region(p, car.region)]
+                if len(car.new_pts) < 10:
+                    car.new_pts = car_pois(cur_grey, car.region)
+                car.state = 'updated'
+    else: #we had no car detections
+        for det in dets:
+            new_car = Car()
+            new_car.region = det[1]
+            new_car.state = 'new'
+            new_car.new_pts = car_pois(cur_grey, det[1])
+            new_car.color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+            cars.append(new_car)
+    new_cars = [c for c in cars if c.state != 'not detected']
+    for car in new_cars:
+        car.pts = car.new_pts        
+    return new_cars
+
 def update_cars(cars, dets, prev_grey, cur_grey):
+### This implementation of update_cars looks where each car moved to
+### an alternative would be to see where each det is coming from, 
+### which might better deal with overlaps
     if (len(cars) > 0): #are we initialized at all?
         #find where all existing cars have moved to
         #first, build a list of all POI's and the cars they belong to:
@@ -244,7 +308,7 @@ def update_cars(cars, dets, prev_grey, cur_grey):
 def process_frame(frame, net, alpr, cars, prev_grey):
     dets = find_cars(net, frame)
     cur_grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cars = update_cars(cars, dets, prev_grey, cur_grey)
+    cars = update_cars_2(cars, dets, prev_grey, cur_grey)
     for car in cars:
         draw_car(frame, car)
     return cars, cur_grey
