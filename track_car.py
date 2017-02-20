@@ -19,6 +19,7 @@ from utils.timer import Timer
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io as sio
+from scipy.optimize import linear_sum_assignment # needed for the assignment problem
 import caffe, os, sys, cv2
 import argparse
 
@@ -187,6 +188,67 @@ def car_pois(gray, region):
     #print "found ", len(p), " good features"
     pp = [[x,y] for [[x,y]] in p]
     return pp
+
+
+def update_cars_3(cars, dets, prev_grey, cur_grey):
+### Yes a third option, this time optimizing the matching of cars and dets using 
+### a matching algorithm
+    len_dets = len(dets)    
+    dets_used = []
+    if len(cars) > 0: #are we initialized at all?
+        #build the cost matrix from current cars to current dets
+        #the cost of matching car i to det region j would be the 
+        #negative of the number of points in car i that
+        #match a point in det region j
+        #start by finding where each point matches
+        prev_car_pts = []
+        for car in cars:
+            car.state = 'unmatched'
+            car.new_pts = [] #delete the previous iteration
+            for p in car.pts:
+                prev_car_pts.append((car, p))
+        p0 = np.float32([p for (car,p) in prev_car_pts])
+        p1, st, err = cv2.calcOpticalFlowPyrLK(prev_grey, cur_grey, p0, None, **lk_params)
+        for (prv, cur, good) in zip(prev_car_pts, p1, st):
+            if good == 1:
+                prv[0].new_pts.append(cur)
+
+        cost = np.zeros((len(cars), len(dets)))
+
+        for i in range(len(cars)):
+            for j in range(len(dets)):
+                cost[i,j] = - len([p for p in cars[i].new_pts if in_region(p, dets[j][1])])
+                
+        car_ind, det_ind = linear_sum_assignment(cost)
+        for (i,j) in zip(car_ind, det_ind):
+            if cost[i,j] < 0: #hopefully not many where == 0
+                cars[i].state = 'matched'
+                cars[i].region = dets[j][1]
+                cars[i].new_pts = [p for p in cars[i].new_pts if in_region(p, cars[i].region)]
+                dets_used.append(j)
+                
+        #now just delete all unmatched cars
+        cars = [car for car in cars if car.state == 'matched']
+        #also, update each car that has too few poi's:
+        for car in cars:
+            if len(car.new_pts) < 30:
+                car.new_pts = car_pois(cur_grey, car.region)
+    #so we've taken care of all matches
+    #delete all dets that are in some car
+    dets = [dets[j] for j in range(len(dets)) if not j in dets_used]
+    #make each remaining det a new car
+    for det in dets:
+        new_car = Car()
+        new_car.region = det[1]
+        new_car.state = 'new'
+        new_car.new_pts = car_pois(cur_grey, det[1])
+        new_car.color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+        cars.append(new_car)
+    #finally push the new_pts to pts
+    for car in cars:
+        car.pts = car.new_pts
+    assert(len(cars) == len_dets)        
+    return cars
     
 def update_cars_2(cars, dets, prev_grey, cur_grey):
 ### This alternative implementation looks where each new detection is coming from 
@@ -308,7 +370,7 @@ def update_cars(cars, dets, prev_grey, cur_grey):
 def process_frame(frame, net, alpr, cars, prev_grey):
     dets = find_cars(net, frame)
     cur_grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cars = update_cars_2(cars, dets, prev_grey, cur_grey)
+    cars = update_cars_3(cars, dets, prev_grey, cur_grey)
     for car in cars:
         draw_car(frame, car)
     return cars, cur_grey
