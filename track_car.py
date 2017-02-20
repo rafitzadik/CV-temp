@@ -327,7 +327,18 @@ def init_alpr():
     
 if __name__ == '__main__':    
     try:
-        vidFile = cv2.VideoCapture('/home/rafi/Videos/park-small.mp4')
+        vidFileName = sys.argv[1]
+    except:
+        vidFileName = '/home/rafi/Videos/park-small.mp4'
+    try:
+        outFileName = sys.argv[2]
+    except:
+        outFileName = '/home/rafi/Videos/out.avi'
+    print 'Reading from ', vidFileName
+    print 'Writing to ', outFileName
+    
+    try:
+        vidFile = cv2.VideoCapture(vidFileName)
         #vidFile = cv2.VideoCapture(0)
     except:
         print "problem opening input stream"
@@ -347,7 +358,7 @@ if __name__ == '__main__':
     print "width: %s" %width
     print "height: %s" %height
     try:
-        outFile = cv2.VideoWriter("/home/rafi/Videos/out.avi", cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width,height), True)
+        outFile = cv2.VideoWriter(outFileName, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width,height), True)
     except:
         print "problem opening output stream"
         exit(1)
