@@ -44,6 +44,8 @@ class Car:
         self.new_pts = []
         self.index = None
         self.plate = None
+        self.plate_conf = 0
+        self.name = None
         self.state = None
         self.desc = ''
         self.color = (0,0,0)
@@ -132,7 +134,7 @@ def crop(frame, region):
     maxx = min(maxx, frame.shape[1])
     #print p1, p1, miny,maxy,minx,maxx
     c = frame[miny:maxy+1, minx:maxx+1]
-    print frame.shape, c.shape
+    #print frame.shape, c.shape
     #cv2.imshow('crop', c)
     return c
     
@@ -140,7 +142,7 @@ def find_plate(img, alpr):
     ret,enc = cv2.imencode("*.bmp", img)
     results = alpr.recognize_array(bytes(bytearray(enc))) #is this how I get the frame to alpr?
     best_conf = 0.0
-    best_plate = 'None'
+    best_plate = None
     for plate in results['results']:
         #print("   %12s %12s" % ("Plate", "Confidence"))
         for candidate in plate['candidates']:
@@ -150,15 +152,25 @@ def find_plate(img, alpr):
             conf = candidate['confidence']
             p = candidate['plate']
             #print("  %s %12s%12f" % (prefix, p, conf))
-            if (conf > best_conf):
+            if (conf > best_conf and len(p) >= 6):
                 best_conf = conf
                 best_plate = p    
 #    print 'detection for ', img.shape, ': ', best_plate
-    return best_plate
+    return best_plate, best_conf
+
+def find_plates(frame, alpr, cars):
+    for car in cars:
+        plate, conf = find_plate(crop(frame, car.region), alpr)
+        if car.plate == None or conf > car.plate_conf:
+            car.plate = plate
+            car.plate_conf = conf
     
 def draw_car(frame, car):
     r = car.region
-    text = car.state
+    if (car.plate == None):
+        text = car.name
+    else:
+        text = car.plate
     cv2.rectangle(frame, (r[0], r[1]), (r[2], r[3]), car.color, 3)
     for pt in car.pts:
         cv2.circle(frame, (pt[0], pt[1]), 2, (0, 255, 0), -1)
@@ -241,6 +253,7 @@ def update_cars_3(cars, dets, prev_grey, cur_grey):
         new_car = Car()
         new_car.region = det[1]
         new_car.state = 'new'
+        new_car.name = 'Unrec' + str(random.randint(100,999))
         new_car.new_pts = car_pois(cur_grey, det[1])
         new_car.color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
         cars.append(new_car)
@@ -371,6 +384,7 @@ def process_frame(frame, net, alpr, cars, prev_grey):
     dets = find_cars(net, frame)
     cur_grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     cars = update_cars_3(cars, dets, prev_grey, cur_grey)
+    find_plates(frame, alpr, cars)
     for car in cars:
         draw_car(frame, car)
     return cars, cur_grey
